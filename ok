@@ -1,0 +1,402 @@
+import { useState, useRef, useCallback } from "react";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const WELCOME =
+  "Initializing neural interface… Hello! I'm RAI, your AI companion. How can I assist you today?";
+
+const SYSTEM_PROMPT =
+  "You are RAI, a friendly, intelligent, and slightly futuristic AI companion. " +
+  "Respond naturally and warmly. Keep answers concise (2–4 sentences for casual talk, " +
+  "more for technical topics). Use a conversational tone. " +
+  "Do NOT use markdown formatting like ** or ## in your responses.";
+
+// ─── Toggle Component ────────────────────────────────────────────────────────
+function Toggle({ on, onToggle }) {
+  return (
+    <div className={`toggle ${on ? "on" : ""}`} onClick={onToggle} role="switch" aria-checked={on}>
+      <div className="toggle-knob" />
+    </div>
+  );
+}
+
+// ─── Avatar Component ────────────────────────────────────────────────────────
+function Avatar({ status }) {
+  const isSpeaking = status === "speaking";
+  return (
+    <div className="avatar-panel">
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+        <div className={`avatar-wrap ${isSpeaking ? "speaking" : ""}`}>
+          <div className="avatar-ring" />
+          <div className="avatar-ring r2" />
+          <div className="avatar-ring r3" />
+          <div className="avatar-core">
+            <div className="avatar-face">
+              <div className="eye left" />
+              <div className="eye right" />
+              <div className={`mouth ${isSpeaking ? "speaking" : ""}`} />
+              <div className="scanline" />
+              <div className="glitch-bar" />
+            </div>
+          </div>
+        </div>
+
+        <div className="status-pill">
+          <div
+            className={`status-dot ${
+              status === "listening" ? "listening" : isSpeaking ? "speaking" : ""
+            }`}
+          />
+          {
+            { online: "online", listening: "listening", speaking: "speaking", thinking: "processing" }[
+              status
+            ] ?? "online"
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Message Bubble ──────────────────────────────────────────────────────────
+function MessageBubble({ msg }) {
+  return (
+    <div className={`msg-row ${msg.role}`}>
+      <div className={`bubble ${msg.role} ${msg.fresh ? "fresh" : ""}`}>
+        <div className="msg-label" style={msg.role === "user" ? { textAlign: "right" } : {}}>
+          {msg.role === "ai" ? "RAI" : "You"}
+        </div>
+        <span>{msg.text}</span>
+        {msg.fresh && msg.text.length > 0 && <span className="cursor" />}
+      </div>
+    </div>
+  );
+}
+
+// ─── Settings Panel ──────────────────────────────────────────────────────────
+function SettingsPanel({ settings, onUpdate, onClose, onClear }) {
+  const toggles = [
+    { key: "voice",          label: "Voice Output", hint: "RAI speaks responses aloud" },
+    { key: "autoSpeak",      label: "Auto-Speak",   hint: "Speak each reply automatically" },
+    { key: "historyEnabled", label: "Chat History", hint: "Keep conversation context" },
+  ];
+
+  return (
+    <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="settings-panel">
+        <div className="panel-header">
+          <div className="panel-title">// SETTINGS</div>
+          <button className="icon-btn" onClick={onClose} aria-label="Close settings">
+            ✕
+          </button>
+        </div>
+
+        {toggles.map(({ key, label, hint }) => (
+          <div className="setting-row" key={key}>
+            <div className="setting-label">
+              {label}
+              <span className="setting-hint">{hint}</span>
+            </div>
+            <Toggle
+              on={settings[key]}
+              onToggle={() => onUpdate((p) => ({ ...p, [key]: !p[key] }))}
+            />
+          </div>
+        ))}
+
+        <div className="setting-row">
+          <div className="setting-label">
+            Voice Gender
+            <span className="setting-hint">TTS voice preference</span>
+          </div>
+          <select
+            className="setting-select"
+            value={settings.voiceGender}
+            onChange={(e) => onUpdate((p) => ({ ...p, voiceGender: e.target.value }))}
+          >
+            <option value="female">Female</option>
+            <option value="male">Male</option>
+          </select>
+        </div>
+
+        <button className="danger-btn" onClick={onClear}>
+          ⚠ Clear Conversation
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main App ────────────────────────────────────────────────────────────────
+export default function App() {
+  const [messages,     setMessages]     = useState([{ role: "ai", text: WELCOME, id: 0 }]);
+  const [input,        setInput]        = useState("");
+  const [status,       setStatus]       = useState("online");
+  const [typing,       setTyping]       = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [micActive,    setMicActive]    = useState(false);
+  const [toast,        setToast]        = useState(null);
+  const [settings,     setSettings]     = useState({
+    voice: true, autoSpeak: true, historyEnabled: true, voiceGender: "female",
+  });
+  const [apiHistory, setApiHistory] = useState([]);
+
+  const chatRef  = useRef(null);
+  const synthRef = useRef(window.speechSynthesis);
+  const recogRef = useRef(null);
+  const idRef    = useRef(1);
+
+  // ── Scroll to bottom
+  const scrollBottom = () =>
+    setTimeout(() => chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" }), 50);
+
+  // ── TTS
+  const speak = useCallback(
+    (text) => {
+      if (!settings.voice || !settings.autoSpeak) return;
+      synthRef.current?.cancel();
+      const utt = new SpeechSynthesisUtterance(text.replace(/[*_`#]/g, ""));
+      utt.rate  = 1.05;
+      utt.pitch = settings.voiceGender === "female" ? 1.2 : 0.85;
+      const voices = synthRef.current?.getVoices() ?? [];
+      const pick =
+        settings.voiceGender === "female"
+          ? voices.find((v) => /female|samantha|zira|karen|victoria|google uk english female/i.test(v.name))
+          : voices.find((v) => /male|alex|daniel|david|google uk english male/i.test(v.name));
+      if (pick) utt.voice = pick;
+      utt.onstart = () => setStatus("speaking");
+      utt.onend   = () => setStatus("online");
+      utt.onerror = () => setStatus("online");
+      synthRef.current?.speak(utt);
+    },
+    [settings.voice, settings.autoSpeak, settings.voiceGender]
+  );
+
+  const stopSpeech = () => { synthRef.current?.cancel(); setStatus("online"); };
+
+  // ── Send message
+  const sendMessage = useCallback(
+    async (userText) => {
+      if (!userText.trim()) return;
+
+      const uid        = idRef.current++;
+      const newHistory = [...apiHistory, { role: "user", content: userText }];
+
+      setMessages((prev) => [...prev, { role: "user", text: userText, id: uid }]);
+      setApiHistory(newHistory);
+      setInput("");
+      setTyping(true);
+      setStatus("thinking");
+      stopSpeech();
+      scrollBottom();
+
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model:      "claude-sonnet-4-20250514",
+            max_tokens: 1000,
+            system:     SYSTEM_PROMPT,
+            messages:   newHistory,
+          }),
+        });
+
+        const data   = await res.json();
+        const aiText =
+          data?.content?.[0]?.text ??
+          "I encountered a glitch in my neural net. Could you try again?";
+
+        setTyping(false);
+        const aid = idRef.current++;
+        setMessages((prev) => [...prev, { role: "ai", text: "", id: aid, fresh: true }]);
+        setApiHistory((prev) => [...prev, { role: "assistant", content: aiText }]);
+        setStatus("speaking");
+        scrollBottom();
+
+        // Typewriter
+        let i = 0;
+        const tick = setInterval(() => {
+          i++;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aid ? { ...m, text: aiText.slice(0, i) } : m))
+          );
+          scrollBottom();
+          if (i >= aiText.length) {
+            clearInterval(tick);
+            setMessages((prev) =>
+              prev.map((m) => (m.id === aid ? { ...m, fresh: false } : m))
+            );
+            speak(aiText);
+            if (!settings.voice || !settings.autoSpeak) setStatus("online");
+          }
+        }, 18);
+      } catch (err) {
+        setTyping(false);
+        setStatus("online");
+        const eid = idRef.current++;
+        setMessages((prev) => [
+          ...prev,
+          { role: "ai", text: "Connection lost. Please check your API key and try again.", id: eid },
+        ]);
+      }
+    },
+    [apiHistory, speak, settings]
+  );
+
+  // ── Keyboard handler
+  const handleKey = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(input);
+    }
+  };
+
+  // ── Auto-resize textarea
+  const handleInput = (e) => {
+    e.target.style.height = "auto";
+    e.target.style.height = Math.min(e.target.scrollHeight, 130) + "px";
+  };
+
+  // ── Mic toggle
+  const toggleMic = () => {
+    const hasSR = "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
+    if (!hasSR) {
+      showToast("🎙 Speech recognition not supported in this browser");
+      return;
+    }
+    if (micActive) {
+      recogRef.current?.stop();
+      setMicActive(false);
+      setStatus("online");
+      return;
+    }
+    const SRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec  = new SRec();
+    rec.continuous     = false;
+    rec.interimResults = false;
+    rec.lang           = "en-US";
+    rec.onstart  = () => { setMicActive(true); setStatus("listening"); };
+    rec.onresult = (e) => {
+      const t = e.results[0][0].transcript;
+      setMicActive(false);
+      setStatus("online");
+      sendMessage(t);
+    };
+    rec.onerror = () => { setMicActive(false); setStatus("online"); };
+    rec.onend   = () => { setMicActive(false); setStatus("online"); };
+    recogRef.current = rec;
+    rec.start();
+  };
+
+  // ── Toast
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2600);
+  };
+
+  // ── Clear history
+  const clearHistory = () => {
+    setMessages([{ role: "ai", text: WELCOME, id: 0 }]);
+    setApiHistory([]);
+    setShowSettings(false);
+    showToast("✓ Conversation cleared");
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <>
+      {/* Background layers */}
+      <div className="grid-bg" />
+      <div className="nebula" />
+
+      <div className="app">
+        {/* ── Header */}
+        <header className="header">
+          <div className="logo">
+            <div className="logo-mark">RAI</div>
+            <div>
+              <div className="logo-title">RAI</div>
+              <div className="logo-sub">Your AI Companion</div>
+            </div>
+          </div>
+          <div className="header-actions">
+            <button className="icon-btn" onClick={() => setShowSettings(true)} title="Settings">
+              ⚙
+            </button>
+            <button className="icon-btn" onClick={stopSpeech} title="Stop speech">
+              ⏹
+            </button>
+          </div>
+        </header>
+
+        {/* ── Avatar */}
+        <Avatar status={status} />
+
+        {/* ── Chat */}
+        <div className="chat-area" ref={chatRef}>
+          {messages.map((m) => (
+            <MessageBubble key={m.id} msg={m} />
+          ))}
+
+          {typing && (
+            <div className="msg-row ai">
+              <div className="bubble ai">
+                <div className="msg-label">RAI</div>
+                <div className="typing-indicator">
+                  <span /><span /><span />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Input bar */}
+        <div className="input-bar">
+          <button
+            className={`mic-btn ${micActive ? "active" : ""}`}
+            onClick={toggleMic}
+            title="Voice input"
+            aria-label="Toggle microphone"
+          >
+            🎙
+          </button>
+
+          <div className="input-wrap">
+            <textarea
+              className="chat-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              onInput={handleInput}
+              placeholder="Send a message to RAI…"
+              rows={1}
+              aria-label="Chat input"
+            />
+          </div>
+
+          <button
+            className="send-btn"
+            onClick={() => sendMessage(input)}
+            disabled={!input.trim() || typing}
+            aria-label="Send message"
+          >
+            ➤
+          </button>
+        </div>
+      </div>
+
+      {/* ── Settings */}
+      {showSettings && (
+        <SettingsPanel
+          settings={settings}
+          onUpdate={setSettings}
+          onClose={() => setShowSettings(false)}
+          onClear={clearHistory}
+        />
+      )}
+
+      {/* ── Toast */}
+      {toast && <div className="toast">{toast}</div>}
+    </>
+  );
+}
