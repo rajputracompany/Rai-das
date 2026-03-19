@@ -1,0 +1,134 @@
+# RAI – Your AI Companion
+
+A futuristic cyberpunk AI chat companion powered by Claude. Supports text and voice interaction with a 2D animated avatar.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/YOUR_USERNAME/rai-ai-companion.git
+cd rai-ai-companion
+npm install
+```
+
+### 2. Add your Anthropic API key
+
+The app calls the Anthropic API directly from the browser. You have two options:
+
+**Option A — Vite environment variable (recommended):**
+
+Create a `.env` file in the project root:
+
+```
+VITE_ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Then update the fetch call in `src/App.jsx`:
+
+```js
+headers: {
+  "Content-Type": "application/json",
+  "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY,
+  "anthropic-version": "2023-06-01",
+  "anthropic-dangerous-direct-browser-access": "true",
+},
+```
+
+**Option B — Proxy backend (production-safe):**
+
+Set up a lightweight Express / Next.js / Vercel Edge Function that forwards requests to the Anthropic API with your key stored server-side.
+
+> ⚠️ Never commit your API key to a public repository.
+
+### 3. Run locally
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000)
+
+---
+
+## 📁 File Structure
+
+```
+rai-ai-companion/
+├── index.html          # HTML entry point
+├── package.json        # Dependencies & scripts
+├── vite.config.js      # Vite configuration
+└── src/
+    ├── main.jsx        # React root mount
+    ├── App.jsx         # Main application component
+    └── styles.css      # All styles & animations
+```
+
+---
+
+## ☁️ Deploy to Vercel (free)
+
+```bash
+npm install -g vercel
+vercel
+```
+
+Add `VITE_ANTHROPIC_API_KEY` as an environment variable in the Vercel dashboard.
+
+## ☁️ Deploy to Netlify (free)
+
+```bash
+npm run build
+# Drag and drop the /dist folder to netlify.com/drop
+```
+
+Or connect your GitHub repo directly in Netlify and set:
+- **Build command:** `npm run build`
+- **Publish directory:** `dist`
+- Add `VITE_ANTHROPIC_API_KEY` in Site Settings → Environment Variables
+
+## ☁️ Deploy to GitHub Pages
+
+```bash
+npm install --save-dev gh-pages
+```
+
+Add to `package.json` scripts:
+```json
+"predeploy": "npm run build",
+"deploy": "gh-pages -d dist"
+```
+
+Then:
+```bash
+npm run deploy
+```
+
+---
+
+## ✨ Features
+
+- 💬 Real-time chat with Claude (Sonnet)
+- 🎙 Voice input via Web Speech API
+- 🔊 Text-to-speech responses
+- 🤖 2D animated cyberpunk avatar
+- ⚙️ Settings panel (voice, gender, history)
+- 📱 Fully mobile responsive
+- 🌌 Cyberpunk dark theme with neon blue glows
+
+---
+
+## 🛠 Tech Stack
+
+- **React 18** + **Vite**
+- **Anthropic Claude API** (claude-sonnet-4)
+- **Web Speech API** (SpeechRecognition + SpeechSynthesis)
+- Pure CSS animations — no animation library needed
+
+---
+
+## 📄 License
+
+MIT — free to use, modify, and deploy.
